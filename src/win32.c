@@ -143,6 +143,7 @@ static void get_device(char *device, int device_len, const char *wanted_dev) {
         }
         /* Get the if name */
         get_name(if_name, sizeof(if_name), device);
+        setenv("intf", if_name, 1);
         RegCloseKey(device_key);
         return;
       }
@@ -281,7 +282,7 @@ int tun_open(const char *tun_device, const char *tun_ip, int tun_mask,
 
   memset(adapter, 0, sizeof(adapter));
   memset(if_name, 0, sizeof(if_name));
-  get_device(adapter, sizeof(adapter), tun_device);
+  get_device(adapter, sizeof(adapter), NULL);//tun_device
 
   if (strlen(adapter) == 0 || strlen(if_name) == 0) {
     if (tun_device) {
