@@ -40,6 +40,10 @@
 #include "shadowvpn.h"
 #include <winioctl.h>
 
+#include <netioapi.h>
+
+#include <iphlpapi.h>
+
 struct tun_data {
   HANDLE tun;
   int sock;
@@ -246,6 +250,135 @@ static int tun_setip(const char *ip, int netbits) {
   return 0;
 }
 
+/*
+ * Get adapter info list
+ */
+static IP_ADAPTER_INFO *get_adapter_info_list(void)
+{
+    ULONG size = 0;
+    IP_ADAPTER_INFO *pi = NULL;
+    DWORD status;
+
+    if ((status = GetAdaptersInfo(NULL, &size)) != ERROR_BUFFER_OVERFLOW)
+    {
+        errf("GetAdaptersInfo #1 failed (status=%u)", (unsigned int)status);
+    }
+    else
+    {
+        pi = (PIP_ADAPTER_INFO) malloc(size);
+        if ((status = GetAdaptersInfo(pi, &size)) == NO_ERROR)
+        {
+            return pi;
+        }
+        else
+        {
+            errf("GetAdaptersInfo #2 failed (status=%u)", (unsigned int)status);
+        }
+    }
+    return pi;
+}
+
+/*
+ * Get interface index for use with IP Helper API functions.
+ */
+static DWORD get_adapter_index_method_1(const char *guid)
+{
+    DWORD index;
+    ULONG aindex;
+    wchar_t wbuf[256];
+    _snwprintf(wbuf, sizeof(wbuf), L"\\DEVICE\\TCPIP_%S", guid);
+    wbuf [sizeof(wbuf) - 1] = 0;
+    if (GetAdapterIndex(wbuf, &aindex) != NO_ERROR)
+    {
+        index = -1;
+    }
+    else
+    {
+        index = (DWORD)aindex;
+    }
+    return index;
+}
+
+static DWORD get_adapter_index_method_2(const char *guid)
+{
+    DWORD index = -1;
+
+    IP_ADAPTER_INFO *list = get_adapter_info_list();
+
+    while (list)
+    {
+        if (!strcmp(guid, list->AdapterName))
+        {
+            index = list->Index;
+            break;
+        }
+        list = list->Next;
+    }
+
+	if(list)
+	    free(list);
+    return index;
+}
+
+static DWORD get_adapter_index(const char *guid)
+{
+    DWORD index;
+    index = get_adapter_index_method_1(guid);
+    if (index == -1)
+    {
+        index = get_adapter_index_method_2(guid);
+    }
+    if (index == -1)
+    {
+        errf("NOTE: could not get adapter index for %s", guid);
+    }
+    return index;
+}
+
+/*
+ * Sets interface metric value for specified interface index.
+ *
+ * Arguments:
+ *   index         : The index of TAP adapter.
+ *   family        : Address family (AF_INET for IPv4 and AF_INET6 for IPv6).
+ *   metric        : Metric value. 0 for automatic metric.
+ * Returns 0 on success, a non-zero status code of the last failed action on failure.
+ */
+
+DWORD set_interface_metric(const NET_IFINDEX index, const ADDRESS_FAMILY family,
+                     const ULONG metric)
+{
+    DWORD err = 0;
+    MIB_IPINTERFACE_ROW ipiface;
+    InitializeIpInterfaceEntry(&ipiface);
+    ipiface.Family = family;
+    ipiface.InterfaceIndex = index;
+    err = GetIpInterfaceEntry(&ipiface);
+    if (err == NO_ERROR)
+    {
+        if (family == AF_INET)
+        {
+            /* required for IPv4 as per MSDN */
+            ipiface.SitePrefixLength = 0;
+        }
+        ipiface.Metric = metric;
+        if (metric == 0)
+        {
+            ipiface.UseAutomaticMetric = TRUE;
+        }
+        else
+        {
+            ipiface.UseAutomaticMetric = FALSE;
+        }
+        err = SetIpInterfaceEntry(&ipiface);
+        if (err == NO_ERROR)
+        {
+            return 0;
+        }
+    }
+    return err;
+}
+
 DWORD WINAPI tun_reader(LPVOID arg) {
   struct tun_data *tun = arg;
   char buf[TUN_READER_BUF_SIZE];
@@ -279,6 +412,7 @@ int tun_open(const char *tun_device, const char *tun_ip, int tun_mask,
   char adapter[TUN_NAME_BUF_SIZE];
   char tapfile[TUN_NAME_BUF_SIZE * 2];
   int tunfd;
+  DWORD adapter_index;
 
   memset(adapter, 0, sizeof(adapter));
   memset(if_name, 0, sizeof(if_name));
@@ -306,6 +440,12 @@ int tun_open(const char *tun_device, const char *tun_ip, int tun_mask,
     errf("can not connect device");
     return -1;
   }
+  
+  adapter_index = get_adapter_index(adapter);
+  if(adapter_index >= 0)
+  	set_interface_metric(adapter_index,AF_INET,1);
+  else
+  	errf("can not get adapter(%s) index: %d", adapter, adapter_index);
 
   /* Use a UDP connection to forward packets from tun,
    * so we can still use select() in main code.

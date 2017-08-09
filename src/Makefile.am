@@ -35,3 +35,6 @@ libshadowvpn_la_LIBADD = ../libsodium/src/libsodium/libsodium.la
 shadowvpn_SOURCES = main.c
 
 shadowvpn_LDADD = libshadowvpn.la
+if WIN32
+shadowvpn_LDADD += -liphlpapi
+endif
