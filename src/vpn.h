@@ -25,11 +25,23 @@
 
 #include "args.h"
 #include "nat.h"
+typedef struct {
+  int type;//1:login,2:logout,3:exit
+  union{
+    char data[40];
+    struct{
+      char uid[20];
+      char pwd[20];
+    };
+  };
+  int rsp;//OK if it is same as type
+}vpn_cmd_t;
 
 typedef struct {
   int running;
   int nsock;
   int *socks;
+  int conn_sock;
   int tun;
   /* select() in winsock doesn't support file handler */
 #ifndef TARGET_WIN32
@@ -38,10 +50,19 @@ typedef struct {
   int control_fd;
   struct sockaddr control_addr;
   socklen_t control_addrlen;
+  struct sockaddr ctl_rmt_addr;
+  socklen_t ctl_rmt_addrlen;
   HANDLE cleanEvent;
 #endif
   unsigned char *tun_buf;
   unsigned char *udp_buf;
+  unsigned char *conn_buf;
+
+  /* the address we currently use (client only) */
+  struct sockaddr_storage conn_addr;
+  /* points to above, just for convenience */
+  struct sockaddr *conn_addrp;
+  socklen_t conn_addrlen;
 
   /* the address we currently use (client only) */
   struct sockaddr_storage remote_addr;

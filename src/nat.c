@@ -132,6 +132,18 @@ typedef struct {
   } \
 }
 
+int nat_check_token(nat_ctx_t *ctx, unsigned char *buf)
+{
+  client_info_t *client = NULL;
+  HASH_FIND(hh1, ctx->token_to_clients, buf, SHADOWVPN_USERTOKEN_LEN, client);
+  if (client == NULL) {
+    logf("nat: client not found for given user token: %16llx", htobe64(*((uint64_t *)buf)));
+    return -1;
+  }else
+    logf("nat: client found for given user token: %16llx", htobe64(*((uint64_t *)buf)));
+  return 0;
+}
+
 int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
                      const struct sockaddr *addr, socklen_t addrlen) {
   uint8_t iphdr_len;
@@ -262,6 +274,11 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
 
 int nat_init(nat_ctx_t *ctx, shadowvpn_args_t *args) {
   errf("warning: NAT server is currently not supported on Windows");
+  return 0;
+}
+
+int nat_check_token(nat_ctx_t *ctx, unsigned char *buf)
+{
   return 0;
 }
 
