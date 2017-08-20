@@ -471,17 +471,30 @@ static int vpn_conn_log_req(vpn_ctx_t *ctx, unsigned char *buf, int len)
   return ret;
 }
 
-static int vpn_login_use_token(vpn_ctx_t *ctx, unsigned char *buf)
+static int vpn_login_use_token(vpn_ctx_t *ctx)
+{
+	vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
+
+  if(ctx->args->user_tokens)
+    strncpy(cmd->data, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);//get token
+  cmd->type = REQ_TYPE_LOGIN;
+  if(0 == vpn_conn_log_req(ctx, ctx->tun_buf, sizeof(vpn_cmd_t)))
+    return 0;
+  return -1;
+}
+
+static int vpn_conn_req(vpn_ctx_t *ctx, unsigned char *buf)
 {
 	vpn_cmd_t *cmd = (vpn_cmd_t *)(buf + SHADOWVPN_ZERO_BYTES);
 
   if(ctx->args->user_tokens)
-    strncpy(cmd->data, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);//get token
-  cmd->type = 1;
+    strncpy(cmd->data, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);
+  cmd->type = REQ_TYPE_CONTST;
   if(0 == vpn_conn_log_req(ctx, buf, sizeof(vpn_cmd_t)))
     return 0;
   return -1;
 }
+
 
 static void vpn_update_user_token(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 {
@@ -489,10 +502,10 @@ static void vpn_update_user_token(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
     strncpy(ctx->args->user_tokens[0], cmd->data, SHADOWVPN_USERTOKEN_LEN);//over write default
 }
 
-static int vpn_conn_log_rsp(vpn_ctx_t *ctx, unsigned char *buf, int len)
+static int vpn_conn_log_rsp(vpn_ctx_t *ctx, int len)
 {
   int ret = 0;
-  vpn_cmd_t *cmd = (vpn_cmd_t *)(buf + SHADOWVPN_ZERO_BYTES);
+  vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
   struct sockaddr_storage temp_remote_addr;
   socklen_t temp_remote_addrlen = sizeof(temp_remote_addr);
   ret = recvfrom(ctx->conn_sock, ctx->udp_buf + SHADOWVPN_PACKET_OFFSET,
@@ -501,9 +514,9 @@ static int vpn_conn_log_rsp(vpn_ctx_t *ctx, unsigned char *buf, int len)
 				&temp_remote_addrlen);//got resp from server
   if(ret != SHADOWVPN_OVERHEAD_LEN + len)
      errf("login response package size error:%d(should:%ld)", len, sizeof(vpn_cmd_t));
-  crypto_decrypt(buf, ctx->udp_buf, ret - SHADOWVPN_OVERHEAD_LEN);
+  crypto_decrypt(ctx->tun_buf, ctx->udp_buf, ret - SHADOWVPN_OVERHEAD_LEN);
   errf("%s type:%d, rsp:%d", __func__, cmd->type, cmd->rsp);
-  return ret;
+  return (ret == SHADOWVPN_OVERHEAD_LEN + len)?0:-1;
 }
 
 static int vpn_check_handle_user(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
@@ -511,88 +524,231 @@ static int vpn_check_handle_user(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
   return nat_check_token(ctx->nat_ctx, cmd->data);
 }
 
-static int vpn_login(vpn_ctx_t *ctx){
-  fd_set readset;
-  int max_fd = 0;
-  vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
-  //struct timeval tv;
-  size_t usertoken_len = 0;
-  int retval;
-  int len;
+static int read_select(vpn_ctx_t *ctx, fd_set *readset, int sec, int need_conn, int need_tun)
+{
 
+  struct timeval tv, *ptv = NULL;
+	int max_fd = 0, i;
+	
+	/* Wait up to sec seconds. */
+	if(sec > 0){
+		tv.tv_sec = sec;
+		tv.tv_usec = 0;
+		ptv = &tv;
+	}
 
-
-  /* Wait up to three seconds. */
-  //tv.tv_sec = 3;
-  //tv.tv_usec = 0;
-
+	FD_ZERO(readset);
 #ifndef TARGET_WIN32
-  if(0 != vpn_login_use_token(ctx,ctx->tun_buf))
-    return -1;
-#endif
-
-  while(1){
-    FD_ZERO(&readset);
-#ifndef TARGET_WIN32
-    FD_SET(ctx->control_pipe[0], &readset);
-    max_fd = max(max_fd,ctx->control_pipe[0]);
+	FD_SET(ctx->control_pipe[0], readset);
+	max_fd = max(max_fd,ctx->control_pipe[0]);
 #else
-    FD_SET(ctx->control_fd, &readset);
-    max_fd = max(max_fd,ctx->control_fd);
+	FD_SET(ctx->control_fd, readset);
+	max_fd = max(max_fd,ctx->control_fd);
 #endif
-    FD_SET(ctx->conn_sock, &readset);
-    max_fd = max(max_fd,ctx->conn_sock);
+	if(need_conn){
+		FD_SET(ctx->conn_sock, readset);
+		max_fd = max(max_fd,ctx->conn_sock);
+	}
+	if(need_tun){
+		FD_SET(ctx->tun, readset);
+		max_fd = max(max_fd,ctx->conn_sock);
 
-    retval = select(max_fd + 1, &readset, NULL, NULL, NULL);
-    if (retval == -1) {
-      err("select");
-      //break;
-    } else if (retval){
-  #ifndef TARGET_WIN32
-    if (FD_ISSET(ctx->control_pipe[0], &readset)) {//not support login
-      char pipe_buf;
-      (void)read(ctx->control_pipe[0], &pipe_buf, 1);
-	  errf("%s exit", __func__);
-	  return -1;
-      //break;
-    }
-  #else
-    if (FD_ISSET(ctx->control_fd, &readset)) {
-      if(0 == vpn_ctl_get_req(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t))){//got control request
-        if(cmd->type != 3){
-          if(-1 == vpn_conn_log_req(ctx, ctx->tun_buf, sizeof(vpn_cmd_t))){//send request fail
-            cmd->rsp = -1;
-            vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//notify ctl send fail.
-          }
-        }else{
-          return -1;//terminal
-        }
-      }
-    }
-  #endif
-    if (FD_ISSET(ctx->conn_sock, &readset)) {
-	  bzero(cmd, sizeof(vpn_cmd_t));
-      if(0 != vpn_conn_log_rsp(ctx, ctx->tun_buf, sizeof(vpn_cmd_t))){//get response to tun_buf+ zerobyte
-        errf("%s type:%d, rsp:%d", __func__, cmd->type, cmd->rsp);
-#ifndef TARGET_WIN32
-        if(cmd->rsp == 1)
-          return 0;
-#else
-        vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
-        if(cmd->rsp == 1){
-          vpn_update_user_token(ctx, cmd);
-          return 0;// successful login
-        }
-#endif
-      }
-    }
-   }//else
-    //   printf("No data within five seconds.\n");
-  }
-  return 0;
+		for (i = 0; i < ctx->nsock; i++) {
+			FD_SET(ctx->socks[i], readset);
+			max_fd = max(max_fd, ctx->socks[i]);
+		}
+	}
+
+	return select(max_fd + 1, readset, NULL, NULL, ptv);
 }
 
-static void vpn_handl_login(vpn_ctx_t *ctx)//server to handle login
+#ifdef TARGET_WIN32
+static int is_exit_req(vpn_cmd_t *cmd)
+{
+	return cmd->type == REQ_TYPE_EXIT?1:0;
+}
+static int is_login_req(vpn_cmd_t *cmd)
+{
+	return cmd->type == REQ_TYPE_LOGIN?1:0;
+}
+
+static void  check_process_login_req(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
+{
+	if(is_login_req(cmd)){
+		if(-1 == vpn_conn_log_req(ctx, ctx->tun_buf, sizeof(vpn_cmd_t))){//send login request from connect socket
+			cmd->rsp = RSP_REQ_FAIL;
+			vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//notify ctl send fail.
+//			return -1;
+		}
+	}
+}
+#endif
+
+static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
+{
+#ifndef TARGET_WIN32
+	if(cmd->rsp == REQ_TYPE_LOGIN)
+		logf("VPN login successfull");
+		return 1;
+#else
+	if(cmd->rsp == REQ_TYPE_LOGIN){
+		vpn_update_user_token(ctx, cmd);
+		vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
+		logf("VPN login successfull");
+		return 1;// successful login
+	}
+#endif
+	return 0;
+}
+
+//return 1 for exit, 0 for normal, -1 for fail
+static int login_ctl_process(vpn_ctx_t *ctx, vpn_cmd_t *cmd, fd_set *readset)
+{
+#ifndef TARGET_WIN32
+	if (FD_ISSET(ctx->control_pipe[0], readset)) {//not support login
+		char pipe_buf;
+		(void)read(ctx->control_pipe[0], &pipe_buf, 1);
+		errf("%s exit", __func__);
+		return 1;
+	}
+#else
+	if (FD_ISSET(ctx->control_fd, readset)) {
+		if(0 == vpn_ctl_get_req(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t))){//got control request
+			if(is_exit_req(cmd))
+				return 1;
+			else
+				check_process_login_req(ctx,cmd);//get login request from ctl, send it to conn
+		}
+	}
+#endif
+	return 0;
+}
+
+//return 1 for login, 0 for normal, -1 for fail, .
+static int	login_conn_process(vpn_ctx_t *ctx, vpn_cmd_t *cmd, fd_set *readset)
+{
+	if (FD_ISSET(ctx->conn_sock, readset)) {
+		bzero(cmd, sizeof(vpn_cmd_t));
+		if(0 == vpn_conn_log_rsp(ctx, sizeof(vpn_cmd_t))){//get response to tun_buf+ zerobyte
+			if(1 == check_process_login_rsp(ctx,cmd))
+				return 1;
+		}
+	}
+	return 0;
+}
+
+//return 1 for exit cmd, -1 for fail
+static int vpn_login(vpn_ctx_t *ctx)
+{
+	int ret, retry = 3;
+  vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
+	fd_set readset;
+
+	while(retry--){
+#ifndef TARGET_WIN32
+		if(0 != vpn_login_use_token(ctx))
+			return -1;
+#endif
+		ret = read_select(ctx, &readset, 0, 1, 0);
+		if (ret == -1) {
+		  err("select");
+		  return -1;
+		} else if (ret){
+			if(0 != login_ctl_process(ctx, cmd, &readset))
+				return 1;//exit cmd or fail
+			if(1 == login_conn_process(ctx, cmd, &readset))
+				return 0;//login pass
+		}else
+			errf("Login failed\n");
+	}
+
+	if(retry < 0)
+		return -1;
+
+//	return 0;
+}
+
+//return 1 for exit, 0 for normal, -1 for fail
+static int conn_ctl_process(vpn_ctx_t *ctx, vpn_cmd_t *cmd, fd_set *readset)
+{
+#ifndef TARGET_WIN32
+	if (FD_ISSET(ctx->control_pipe[0], readset)) {//not support login
+		char pipe_buf;
+		(void)read(ctx->control_pipe[0], &pipe_buf, 1);
+		errf("%s exit", __func__);
+		return 1;
+	}
+#else
+	if (FD_ISSET(ctx->control_fd, readset)) {
+		if(0 == vpn_ctl_get_req(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t))){//got control request
+			if(is_exit_req(cmd))
+				return 1;
+			//TODO: handle other cmd,here should't got other commands
+		}
+	}
+#endif
+	return 0;
+}
+
+static int check_process_conn_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
+{
+#ifndef TARGET_WIN32
+	if(cmd->rsp == REQ_TYPE_CONTST)
+		return 1;
+#else
+	if(cmd->rsp == REQ_TYPE_CONTST){
+		vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
+		return 1;// connect server successful
+	}
+#endif
+	return 0;
+}
+
+
+//return 1 for login, 0 for normal, -1 for fail, .
+static int	conn_conn_process(vpn_ctx_t *ctx, vpn_cmd_t *cmd, fd_set *readset)
+{
+	if (FD_ISSET(ctx->conn_sock, readset)) {
+		bzero(cmd, sizeof(vpn_cmd_t));
+		if(0 == vpn_conn_log_rsp(ctx, sizeof(vpn_cmd_t))){//get response to tun_buf+ zerobyte
+			if(1 == check_process_conn_rsp(ctx,cmd)){
+				logf("VPN net connect");
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+//return 1 for exit, 0 for connect, -1 for fail
+static int vpn_conn(vpn_ctx_t *ctx)
+{
+		int retry = 3, ret;
+		vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
+		fd_set readset;
+
+		while(retry--){
+			if(0 != vpn_conn_req(ctx,ctx->tun_buf)){//send check connect req
+				errf("%s send conn request fail", __func__);
+			}
+			ret = read_select(ctx, &readset, 1, 1, 0);
+			if (ret == -1) {
+				err("select");
+				return -1;
+			} else if (ret){
+				if(conn_ctl_process(ctx, cmd, &readset))
+					return 1;//exit
+				if(1 == conn_conn_process(ctx, cmd, &readset))
+					return 0;//connect success
+			}else
+				errf("check connect time out \n");
+		}
+
+		if(retry < 0)
+			return -1;
+}
+
+static void vpn_handl_connect(vpn_ctx_t *ctx)//server to handle login
 {
   int ret = 0;
   int len = 0;
@@ -605,20 +761,26 @@ static void vpn_handl_login(vpn_ctx_t *ctx)//server to handle login
               (struct sockaddr *)&temp_remote_addr,
               &temp_remote_addrlen);//got request from client
   if(len != sizeof(vpn_cmd_t) + SHADOWVPN_OVERHEAD_LEN)
-    errf("login request package size error:%d(should:%ld)", len,sizeof(vpn_cmd_t));
+    errf("%s request package size error:%d(should:%ld)", __func__, len,sizeof(vpn_cmd_t));
+
   crypto_decrypt(ctx->tun_buf, ctx->udp_buf, len - SHADOWVPN_OVERHEAD_LEN);
-  if(1 == cmd->type || 2 == cmd->type){//got login request
+  if(REQ_TYPE_LOGIN == cmd->type || REQ_TYPE_LOGOUT == cmd->type){//got login request
     if(vpn_check_handle_user(ctx, cmd) == 0){
         cmd->rsp = cmd->type;
     }else
-      cmd->rsp = -2;//fail
-    crypto_encrypt(ctx->udp_buf, ctx->tun_buf, sizeof(vpn_cmd_t));
-    len = sendto(ctx->conn_sock, ctx->udp_buf + SHADOWVPN_PACKET_OFFSET,
-               SHADOWVPN_OVERHEAD_LEN + sizeof(vpn_cmd_t), 0,
-               (struct sockaddr *)&temp_remote_addr, temp_remote_addrlen);//send rsp to client.
+      cmd->rsp = RSP_TOK_FAIL;//fail
+  }else if(REQ_TYPE_CONTST == cmd->type){
+	  cmd->rsp = cmd->type;
   }else{
-    errf("%s login request error: type:%d, data:%s", __func__, cmd->type, cmd->data);
+		cmd->rsp = RSP_ERR_REQ;
+    errf("%s login request error: unknow type:%d", __func__, cmd->type);
   }
+	logf("%s request type:%d rsp:%d", __func__, cmd->type, cmd->rsp);
+
+	crypto_encrypt(ctx->udp_buf, ctx->tun_buf, sizeof(vpn_cmd_t));
+  len = sendto(ctx->conn_sock, ctx->udp_buf + SHADOWVPN_PACKET_OFFSET,
+           SHADOWVPN_OVERHEAD_LEN + sizeof(vpn_cmd_t), 0,
+           (struct sockaddr *)&temp_remote_addr, temp_remote_addrlen);//send rsp to client.
 }
 
 static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
@@ -633,33 +795,16 @@ static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
     ctx->nat_ctx = malloc(sizeof(nat_ctx_t));
     nat_init(ctx->nat_ctx, ctx->args);
   }
-
+/*
+  if (ctx->args->mode == SHADOWVPN_MODE_CLIENT && usertoken_len) {
+		if(0 != vpn_conn(ctx))
+			ctx->running = 0;
+  }
+*/
   logf("VPN started");
 
   while (ctx->running) {
-    FD_ZERO(&readset);
-#ifndef TARGET_WIN32
-    FD_SET(ctx->control_pipe[0], &readset);
-    max_fd = max(max_fd,ctx->control_pipe[0]);
-#else
-    FD_SET(ctx->control_fd, &readset);
-    max_fd = max(max_fd,ctx->control_fd);
-#endif
-    FD_SET(ctx->tun, &readset);
-    max_fd = max(max_fd,ctx->tun);
-	  FD_SET(ctx->conn_sock, &readset);
-    max_fd = max(max_fd,ctx->conn_sock);
-    //max_fd = 0;
-    for (i = 0; i < ctx->nsock; i++) {
-      FD_SET(ctx->socks[i], &readset);
-      max_fd = max(max_fd, ctx->socks[i]);
-    }
-
-    // we assume that pipe fd is always less than tun and sock fd which are
-    // created later
-    //max_fd = max(ctx->tun, max_fd) + 1;
-
-    if (-1 == select(max_fd +1, &readset, NULL, NULL, NULL)) {
+    if (-1 == read_select(ctx, &readset, 0, ctx->args->mode == SHADOWVPN_MODE_SERVER, 1)) {
       if (errno == EINTR)
         continue;
       err("select");
@@ -793,8 +938,8 @@ static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
         }
       }
     }
-    if (FD_ISSET(ctx->conn_sock, &readset)) {
-      vpn_handl_login(ctx);
+    if (ctx->args->mode == SHADOWVPN_MODE_SERVER && FD_ISSET(ctx->conn_sock, &readset)) {
+      vpn_handl_connect(ctx);
     }
   }
 

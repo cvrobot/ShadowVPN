@@ -25,6 +25,18 @@
 
 #include "args.h"
 #include "nat.h"
+
+#define REQ_TYPE_LOGIN 1
+#define REQ_TYPE_LOGOUT 2
+#define REQ_TYPE_CONTST 3
+#define REQ_TYPE_EXIT 4
+
+#define RSP_REQ_FAIL -1;
+#define RSP_TOK_FAIL -2;
+#define RSP_CON_FAIL -3;
+#define RSP_ERR_REQ  -4;
+#define RSP_TIME_OUT -5;
+
 typedef struct {
   int type;//1:login,2:logout,3:exit
   union{
