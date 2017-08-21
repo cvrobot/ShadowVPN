@@ -603,6 +603,7 @@ static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
     if(cmd->client_ip > 0){
       in.s_addr = cmd->client_ip;
       setenv("tunip",inet_ntoa(in), 1);
+      setenv("remote_tun_ip",inet_ntoa(in&(~0xff)), 1);
     }
 		vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
 		logf("VPN login successfull");
