@@ -42,8 +42,10 @@ typedef struct {
   union{
     char data[40];
     struct{
-      char uid[20];
+      char uid[10];
       char pwd[20];
+      char token[SHADOWVPN_USERTOKEN_LEN];
+      uint32_t client_ip;
     };
   };
   int rsp;//OK if it is same as type

@@ -78,7 +78,7 @@ typedef struct {
 /* init hash tables */
 int nat_init(nat_ctx_t *ctx, shadowvpn_args_t *args);
 
-int nat_check_token(nat_ctx_t *ctx, unsigned char *buf);
+int nat_check_token(nat_ctx_t *ctx, unsigned char *token,  uint32_t *client_ip);
 /* UDP -> TUN NAT
    buf starts from payload
 */

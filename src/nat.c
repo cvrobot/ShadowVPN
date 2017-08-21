@@ -132,15 +132,17 @@ typedef struct {
   } \
 }
 
-int nat_check_token(nat_ctx_t *ctx, unsigned char *buf)
+int nat_check_token(nat_ctx_t *ctx, unsigned char *token,  uint32_t *client_ip)
 {
   client_info_t *client = NULL;
-  HASH_FIND(hh1, ctx->token_to_clients, buf, SHADOWVPN_USERTOKEN_LEN, client);
+  HASH_FIND(hh1, ctx->token_to_clients, token, SHADOWVPN_USERTOKEN_LEN, client);
   if (client == NULL) {
-    logf("nat: client not found for given user token: %16llx", htobe64(*((uint64_t *)buf)));
+    logf("nat: client not found for given user token: %16llx", htobe64(*((uint64_t *)token)));
     return -1;
-  }else
-    logf("nat: client found for given user token: %16llx", htobe64(*((uint64_t *)buf)));
+  }else{
+    *client_ip = client->output_tun_ip;
+    logf("nat: client found for given user token: %16llx", htobe64(*((uint64_t *)token)));
+  }
   return 0;
 }
 
@@ -277,7 +279,7 @@ int nat_init(nat_ctx_t *ctx, shadowvpn_args_t *args) {
   return 0;
 }
 
-int nat_check_token(nat_ctx_t *ctx, unsigned char *buf)
+int nat_check_token(nat_ctx_t *ctx, unsigned char *token,  uint32_t *client_ip)
 {
   return 0;
 }

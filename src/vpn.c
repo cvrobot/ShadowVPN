@@ -476,7 +476,7 @@ static int vpn_login_use_token(vpn_ctx_t *ctx)
 	vpn_cmd_t *cmd = (vpn_cmd_t *)(ctx->tun_buf + SHADOWVPN_ZERO_BYTES);
 
   if(ctx->args->user_tokens)
-    strncpy(cmd->data, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);//get token
+    strncpy(cmd->token, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);//get token
   cmd->type = REQ_TYPE_LOGIN;
   if(0 == vpn_conn_log_req(ctx, ctx->tun_buf, sizeof(vpn_cmd_t)))
     return 0;
@@ -488,7 +488,7 @@ static int vpn_conn_req(vpn_ctx_t *ctx, unsigned char *buf)
 	vpn_cmd_t *cmd = (vpn_cmd_t *)(buf + SHADOWVPN_ZERO_BYTES);
 
   if(ctx->args->user_tokens)
-    strncpy(cmd->data, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);
+    strncpy(cmd->token, ctx->args->user_tokens[0], SHADOWVPN_USERTOKEN_LEN);
   cmd->type = REQ_TYPE_CONTST;
   if(0 == vpn_conn_log_req(ctx, buf, sizeof(vpn_cmd_t)))
     return 0;
@@ -499,7 +499,7 @@ static int vpn_conn_req(vpn_ctx_t *ctx, unsigned char *buf)
 static void vpn_update_user_token(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 {
   if(ctx->args->user_tokens)
-    strncpy(ctx->args->user_tokens[0], cmd->data, SHADOWVPN_USERTOKEN_LEN);//over write default
+    strncpy(ctx->args->user_tokens[0], cmd->token, SHADOWVPN_USERTOKEN_LEN);//over write default
 }
 
 static int vpn_conn_log_rsp(vpn_ctx_t *ctx, int len)
@@ -521,7 +521,7 @@ static int vpn_conn_log_rsp(vpn_ctx_t *ctx, int len)
 
 static int vpn_check_handle_user(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 {
-  return nat_check_token(ctx->nat_ctx, cmd->data);
+  return nat_check_token(ctx->nat_ctx, cmd->token, &cmd->client_ip);
 }
 
 static int read_select(vpn_ctx_t *ctx, fd_set *readset, int sec, int need_conn, int need_tun)
@@ -586,13 +586,24 @@ static void  check_process_login_req(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 
 static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 {
+  struct in_addr in;
+  char addr[255];
 #ifndef TARGET_WIN32
 	if(cmd->rsp == REQ_TYPE_LOGIN)
+    if(cmd->client_ip > 0){
+      in.s_addr = cmd->client_ip;
+      sprintf(addr,"%s/24",inet_ntoa(in));
+      setenv("net", addr, 1);
+    }
 		logf("VPN login successfull");
 		return 1;
 #else
 	if(cmd->rsp == REQ_TYPE_LOGIN){
 		vpn_update_user_token(ctx, cmd);
+    if(cmd->client_ip > 0){
+      in.s_addr = cmd->client_ip;
+      setenv("tunip",inet_ntoa(in), 1);
+    }
 		vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
 		logf("VPN login successfull");
 		return 1;// successful login
