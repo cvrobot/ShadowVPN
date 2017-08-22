@@ -637,7 +637,7 @@ static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
       in.s_addr = in.s_addr &(~(0xff<<24));//set default route
       setenv("remote_tun_ip",inet_ntoa(in), 1);
       in.s_addr |= 0x1<<24;//set net gateway
-      vpn_udp_addr(inet_ntoa(in), args->port + 1,ctx->conn_addrp,&ctx->conn_addrlen);//change connect addr for try connect
+      vpn_udp_addr(inet_ntoa(in), ctx->args->port + 1,ctx->conn_addrp,&ctx->conn_addrlen);//change connect addr for try connect
     }
 		vpn_ctl_snd_rsp(ctx, (unsigned char *)cmd, sizeof(vpn_cmd_t));//nodify ctl
 		logf("VPN login successfull");
@@ -840,8 +840,9 @@ static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
   fd_set readset;
   int max_fd = 0, i, retry = 0, conn = 0;
   ssize_t r;
-	struct timeval tv;
-	long time;
+	time_t bf,af;
+	//struct timeval tv;
+	//long time;
 
   shell_up(ctx->args);
 
@@ -862,14 +863,17 @@ static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
 			if(conn == 0){
 				if(retry == 0){
 					retry++;
-					gettimeofday(&tv, NULL);
-					time = tv.tv_sec;
+					time(&bf);
+					//gettimeofday(&tv, NULL);
+					//time = tv.tv_sec;
 		      if(0 != vpn_conn_req(ctx,ctx->tun_buf)){//send check connect req
 						errf("%s send conn request fail", __func__);
 					}
 				}else if(retry < 3){
-					gettimeofday(&tv, NULL);
-					if(tv.tv_sec - time > retry){
+					//gettimeofday(&tv, NULL);
+					//if(tv.tv_sec - time > retry){
+					time(&af);
+					if(difftime(af, bf) > retry){
 						retry++;
 						if(0 != vpn_conn_req(ctx,ctx->tun_buf)){//send check connect req
 							errf("%s send conn request fail", __func__);
