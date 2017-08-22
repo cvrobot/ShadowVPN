@@ -1017,7 +1017,7 @@ static void vpn_process(vpn_ctx_t *ctx, size_t usertoken_len)
 	    if (ctx->args->mode == SHADOWVPN_MODE_SERVER) {
 	      if(FD_ISSET(ctx->conn_sock, &readset))
 	        vpn_handl_connect(ctx);
-	    }else{
+	    }else if(conn == 0){
 	      conn = conn_conn_process(ctx, &readset);
 	    }
 	}
