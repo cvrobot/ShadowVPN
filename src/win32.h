@@ -38,6 +38,7 @@
 extern HANDLE dev_handle;
 
 int tun_open(const char *tun_device, const char *tun_ip, int tun_mask, int tun_port);
+int tun_setip(const char *ip, int netbits);
 int setenv(const char *name, const char *value, int overwrite);
 int disable_reset_report(int fd);
 

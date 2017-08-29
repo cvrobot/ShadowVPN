@@ -659,10 +659,12 @@ static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 			vpn_update_user_token(ctx, cmd);
 	    if(cmd->client_ip > 0){
 	      in.s_addr = cmd->client_ip;
+	      tun_setip(inet_ntoa(in),ctx->args->tun_mask);
 	      setenv("tunip",inet_ntoa(in), 1);
-	      in.s_addr = in.s_addr &(~(0xff<<24));//set default route
+	      in.s_addr = in.s_addr &(~(0xff<<ctx->args->tun_mask));//set default route
 	      setenv("remote_tun_ip",inet_ntoa(in), 1);
-	      in.s_addr |= 0x1<<24;//set net gateway
+	      in.s_addr |= 0x1<<ctx->args->tun_mask;//set net gatewa
+	      logf("%s change connect remote ip to :%s",__func__, inet_ntoa(in));
 	      vpn_udp_addr(inet_ntoa(in), ctx->args->port + 1,ctx->conn_addrp,&ctx->conn_addrlen);//change connect addr for try connect
 	    }
 			logf("VPN login successfull");
@@ -1081,6 +1083,7 @@ int vpn_run(vpn_ctx_t *ctx) {
   for (i = 0; i < ctx->nsock; i++) {
     close(ctx->socks[i]);
   }
+	vpn_ctx_conn_deinit(ctx);
 
   ctx->running = 0;
 

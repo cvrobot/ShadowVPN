@@ -45,6 +45,7 @@ typedef struct {
       char uid[10];
       char pwd[20];
       char token[SHADOWVPN_USERTOKEN_LEN];
+      char reserved[2];
       uint32_t client_ip;
     };
   };

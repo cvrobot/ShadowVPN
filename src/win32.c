@@ -194,7 +194,7 @@ static int inet_aton(const char *cp, struct in_addr *inp) {
   return inp->s_addr != INADDR_ANY;
 }
 
-static int tun_setip(const char *ip, int netbits) {
+int tun_setip(const char *ip, int netbits) {
   int netmask;
   struct in_addr net;
   int i;
