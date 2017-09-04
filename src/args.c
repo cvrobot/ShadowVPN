@@ -56,7 +56,7 @@ static void print_help() {
 }
 
 static int parse_config_file(shadowvpn_args_t *args, const char *filename) {
-  char buf[512];
+  char buf[2048];
   char *line;
   FILE *fp;
   size_t len = sizeof(buf);
