@@ -51,7 +51,7 @@ int nat_init(nat_ctx_t *ctx, shadowvpn_args_t *args) {
 
     struct in_addr in;
     in.s_addr = client->output_tun_ip;
-    logf("assigning %s to user %16llx",
+    logf("assigning %s to user %016llx",
          inet_ntoa(in),
          htobe64(*((uint64_t *)args->user_tokens[i])));
 

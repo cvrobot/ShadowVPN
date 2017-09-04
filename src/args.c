@@ -132,6 +132,7 @@ static int parse_user_tokens(shadowvpn_args_t *args, char *value) {
     if (*value == ',') {
       len++;
     }
+
     value++;
   }
   args->user_tokens_len = len;
@@ -145,6 +146,8 @@ static int parse_user_tokens(shadowvpn_args_t *args, char *value) {
       has_next = 1;
       *sp_pos = 0;
     }
+    while(*value == ' ' || *value == '\\' || *value == '\r' || *value == '\n')
+	value++;
     int p = 0;
     while (*value && p < 8) {
       unsigned int temp;
