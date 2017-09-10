@@ -1069,6 +1069,8 @@ int vpn_run(vpn_ctx_t *ctx) {
   bzero(ctx->tun_buf, SHADOWVPN_ZERO_BYTES);
   bzero(ctx->udp_buf, SHADOWVPN_ZERO_BYTES);
 
+  shell_down(ctx->args);//clear route table
+
   if (ctx->args->mode == SHADOWVPN_MODE_CLIENT && ctx->args->user_tokens_len){
     if (0 == vpn_login(ctx))
       vpn_process(ctx, usertoken_len);
