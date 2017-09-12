@@ -532,7 +532,7 @@ static int vpn_conn_req(vpn_ctx_t *ctx, unsigned char *buf)
 static void vpn_update_user_token(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 {
   if(ctx->args->user_tokens)
-    strncpy(ctx->args->user_tokens[0], cmd->token, SHADOWVPN_USERTOKEN_LEN);//over write default
+    memcpy(ctx->args->user_tokens[0], cmd->token, SHADOWVPN_USERTOKEN_LEN);//over write default
 }
 
 static int vpn_conn_log_rsp(vpn_ctx_t *ctx, int len)
