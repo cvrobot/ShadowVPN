@@ -44,6 +44,7 @@
 
 #include <iphlpapi.h>
 
+typedef unsigned long in_addr_t;
 struct tun_data {
   HANDLE tun;
   int sock;
@@ -379,6 +380,80 @@ DWORD set_interface_metric(const NET_IFINDEX index, const ADDRESS_FAMILY family,
     return err;
 }
 
+static MIB_IPFORWARDTABLE *
+get_windows_routing_table()
+{
+    ULONG size = 0;
+    PMIB_IPFORWARDTABLE rt = NULL;
+    DWORD status;
+
+    status = GetIpForwardTable(NULL, &size, TRUE);
+    if (status == ERROR_INSUFFICIENT_BUFFER)
+    {
+        rt = (PMIB_IPFORWARDTABLE) malloc(size);
+        status = GetIpForwardTable(rt, &size, TRUE);
+        if (status != NO_ERROR)
+        {
+            errf("NOTE: GetIpForwardTable returned error: %s (code=%u)",
+                strerror(status),
+                (unsigned int)status);
+            rt = NULL;
+        }
+    }
+    return rt;
+}
+
+static const MIB_IPFORWARDROW *
+get_default_gateway_row(const MIB_IPFORWARDTABLE *routes)
+{
+    DWORD lowest_metric = MAXDWORD;
+    const MIB_IPFORWARDROW *ret = NULL;
+    int i;
+    int best = -1;
+
+    if (routes)
+    {
+        for (i = 0; i < routes->dwNumEntries; ++i)
+        {
+            const MIB_IPFORWARDROW *row = &routes->table[i];
+            const in_addr_t net = ntohl(row->dwForwardDest);
+            const in_addr_t mask = ntohl(row->dwForwardMask);
+            const DWORD index = row->dwForwardIfIndex;
+            const DWORD metric = row->dwForwardMetric1;
+/*
+            dmsg(D_ROUTE_DEBUG, "GDGR: route[%d] %s/%s i=%d m=%d",
+                 i,
+                 print_in_addr_t((in_addr_t) net, 0, &gc),
+                 print_in_addr_t((in_addr_t) mask, 0, &gc),
+                 (int)index,
+                 (int)metric);
+*/
+            if (!net && !mask && metric < lowest_metric)
+            {
+                ret = row;
+                lowest_metric = metric;
+                best = i;
+            }
+        }
+    }
+
+
+    return ret;
+}
+
+void get_default_getway_intf_index()
+{
+	char id[2];
+
+    MIB_IPFORWARDTABLE *routes = get_windows_routing_table();
+    const MIB_IPFORWARDROW *row = get_default_gateway_row(routes);
+
+	itoa(row->dwForwardIfIndex, id, 10);
+	setenv("orig_intf_id", id, 1);
+    errf("%s  %d", __func__, row->dwForwardIfIndex);
+    free(routes);
+}
+
 DWORD WINAPI tun_reader(LPVOID arg) {
   struct tun_data *tun = arg;
   char buf[TUN_READER_BUF_SIZE];
@@ -449,6 +524,8 @@ int tun_open(const char *tun_device, const char *tun_ip, int tun_mask,
   	set_interface_metric(adapter_index,AF_INET,1);
   }else
   	errf("can not get adapter(%s) index: %d", adapter, adapter_index);
+
+  get_default_getway_intf_index();//get default getway_intf_index, and set it to env
 
   /* Use a UDP connection to forward packets from tun,
    * so we can still use select() in main code.
