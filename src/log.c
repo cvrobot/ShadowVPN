@@ -22,7 +22,7 @@
 #include "shadowvpn.h"
 
 int verbose_mode;
-
+FILE *g_log_file = NULL;
 void log_timestamp(FILE *out) {
   time_t now;
   time(&now);
@@ -31,9 +31,9 @@ void log_timestamp(FILE *out) {
   fprintf(out, "%s ", time_str);
 }
 
-void perror_timestamp(const char *msg, const char *file, int line) {
-  log_timestamp(stderr);
-  fprintf(stderr, "%s:%d ", file, line);
+void perror_timestamp(const char *msg, FILE *out, const char *file, int line) {
+  log_timestamp(out);
+  fprintf(out, "%s:%d ", file, line);
 #ifdef TARGET_WIN32
   LPVOID *err_str = NULL;
   FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
@@ -42,7 +42,7 @@ void perror_timestamp(const char *msg, const char *file, int line) {
                 MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                 (LPTSTR) &err_str, 0, NULL);
   if (err_str != NULL) {
-    fprintf(stderr, "%s: %s\n", msg, (char *)err_str);
+    fprintf(out, "%s: %s\n", msg, (char *)err_str);
     LocalFree(err_str);
   }
 #else

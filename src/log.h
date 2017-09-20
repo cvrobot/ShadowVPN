@@ -25,8 +25,10 @@
 #include <stdio.h>
 #include <errno.h>
 
-extern int verbose_mode;
+#include "shadowvpn.h"
 
+extern int verbose_mode;
+extern FILE *g_log_file;
 /*
    err:    same as perror but with timestamp
    errf:   same as printf to stderr with timestamp and \n
@@ -57,9 +59,9 @@ extern int verbose_mode;
 
 #else
 
-#define logf(s...) __LOG(stdout, 0, s)
-#define errf(s...) __LOG(stderr, 1, s)
-#define err(s) perror_timestamp(s, __FILE__, __LINE__)
+#define logf(s...) __LOG(g_log_file?g_log_file:stdout, 0, s)
+#define errf(s...) __LOG(g_log_file?g_log_file:stderr, 1, s)
+#define err(s) perror_timestamp(s, g_log_file?g_log_file:stderr, __FILE__, __LINE__)
 
 #endif
 
@@ -70,7 +72,7 @@ extern int verbose_mode;
 #endif
 
 void log_timestamp(FILE *out);
-void perror_timestamp(const char *msg, const char *file, int line);
+void perror_timestamp(const char *msg, FILE *out, const char *file, int line);
 void print_hex_memory(void *mem, size_t len);
 
 #endif

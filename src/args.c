@@ -33,13 +33,14 @@
 
 
 static const char *help_message =
-"usage: shadowvpn -c config_file [-s start/stop/restart] [-v]\n"
+"usage: shadowvpn -c config_file [-s start/stop/restart] [-v] [-l]\n"
 "\n"
 "  -h, --help            show this help message and exit\n"
 "  -s start/stop/restart control shadowvpn process. if omitted, will run\n"
 "                        in foreground\n"
 "  -c config_file        path to config file\n"
 "  -v                    verbose logging\n"
+"  -l                    log to file"
 "\n"
 "Online help: <https://github.com/clowwindy/ShadowVPN>\n";
 
@@ -281,7 +282,7 @@ static void load_default_args(shadowvpn_args_t *args) {
 int args_parse(shadowvpn_args_t *args, int argc, char **argv) {
   int ch;
   bzero(args, sizeof(shadowvpn_args_t));
-  while ((ch = getopt(argc, argv, "hs:c:v")) != -1) {
+  while ((ch = getopt(argc, argv, "hs:c:vl")) != -1) {
     switch (ch) {
       case 's':
         if (strcmp("start", optarg) == 0)
@@ -300,6 +301,9 @@ int args_parse(shadowvpn_args_t *args, int argc, char **argv) {
         break;
       case 'v':
         verbose_mode = 1;
+        break;
+      case 'l':
+        g_log_file = fopen("log.txt", "w+");
         break;
        default:
         print_help();
