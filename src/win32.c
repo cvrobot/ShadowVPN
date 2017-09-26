@@ -517,9 +517,12 @@ int tun_open(const char *tun_device, const char *tun_ip, int tun_mask,
   }
   
   adapter_index = get_adapter_index(adapter);
-  if(adapter_index >= 0)
+  if(adapter_index >= 0){
+		char id[2];
+		itoa(adapter_index, id, 10);
+		setenv("intf_id", id, 1);
   	set_interface_metric(adapter_index,AF_INET,1);
-  else
+  }else
   	errf("can not get adapter(%s) index: %d", adapter, adapter_index);
 
   get_default_getway_intf_index();//get default getway_intf_index, and set it to env
