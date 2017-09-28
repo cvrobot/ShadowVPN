@@ -295,6 +295,7 @@ int vpn_udp_addr(const char *host, int port, struct sockaddr *addr, socklen_t* a
   }
   memcpy(addr, res->ai_addr, res->ai_addrlen);
   *addrlen = res->ai_addrlen;
+	freeaddrinfo(res);
 
   return 0;
 }
