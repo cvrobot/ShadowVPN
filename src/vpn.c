@@ -663,8 +663,8 @@ static int check_process_login_rsp(vpn_ctx_t *ctx, vpn_cmd_t *cmd)
 	      tun_setip(inet_ntoa(in),ctx->args->tun_mask);
 	      setenv("tunip",inet_ntoa(in), 1);
 	      in.s_addr = in.s_addr &(~(0xff<<ctx->args->tun_mask));//set default route
-	      setenv("remote_tun_ip",inet_ntoa(in), 1);
 	      in.s_addr |= 0x1<<ctx->args->tun_mask;//set net gatewa
+	      setenv("remote_tun_ip",inet_ntoa(in), 1);
 	      logf("%s change connect remote ip to :%s",__func__, inet_ntoa(in));
 	      vpn_udp_addr(inet_ntoa(in), ctx->args->port + 1,ctx->conn_addrp,&ctx->conn_addrlen);//change connect addr for try connect
 	    }
