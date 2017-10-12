@@ -132,6 +132,16 @@ typedef struct {
   } \
 }
 
+#define ADD_CHECKSUM_32(acc, u32) { \
+        acc += (u32) & 0xffff; \
+        acc += (u32) >> 16;    \
+}
+
+#define SUB_CHECKSUM_32(acc, u32) { \
+        acc -= (u32) & 0xffff; \
+        acc -= (u32) >> 16;    \
+}
+
 int nat_check_token(nat_ctx_t *ctx, unsigned char *token,  uint32_t *client_ip)
 {
   client_info_t *client = NULL;
@@ -182,7 +192,12 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   iphdr->saddr = client->output_tun_ip;
 
   // add old, sub new
-  acc = client->input_tun_ip - iphdr->saddr;
+  //acc = client->input_tun_ip - iphdr->saddr;
+	ADD_CHECKSUM_32(acc, client->input_tun_ip);
+	SUB_CHECKSUM_32(acc, iphdr->saddr);
+	if(acc != client->input_tun_ip - iphdr->saddr)
+		errf("acc not equal 0x%08x:0x%08x",acc ,client->input_tun_ip - iphdr->saddr);
+
   ADJUST_CHECKSUM(acc, iphdr->checksum);
 
   if (0 == (iphdr->frag & htons(0x1fff))) {
@@ -243,7 +258,11 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   int32_t acc = 0;
 
   // add old, sub new
-  acc = iphdr->daddr - client->input_tun_ip;
+  //acc = iphdr->daddr - client->input_tun_ip;
+	ADD_CHECKSUM_32(acc, iphdr->daddr);
+	SUB_CHECKSUM_32(acc, client->input_tun_ip);
+	if(acc != iphdr->daddr - client->input_tun_ip)
+		errf("acc not equal 0x%08x:0x%08x",acc ,iphdr->daddr - client->input_tun_ip);
 
   // overwrite IP
   iphdr->daddr = client->input_tun_ip;
