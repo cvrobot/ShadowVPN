@@ -195,9 +195,12 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   //acc = client->input_tun_ip - iphdr->saddr;
 	ADD_CHECKSUM_32(acc, client->input_tun_ip);
 	SUB_CHECKSUM_32(acc, iphdr->saddr);
-	if(acc != client->input_tun_ip - iphdr->saddr)
-		errf("acc not equal 0x%08x:0x%08x",acc ,client->input_tun_ip - iphdr->saddr);
-
+	if(acc != client->input_tun_ip - iphdr->saddr){
+		struct in_addr in,sa;
+		in.s_addr = client->input_tun_ip;
+		sa.s_addr = iphdr->saddr;
+		errf("%s acc not equal 0x%08x:0x%08x, input_tun_ip:%s iphdr->saddr:%s", __func__, acc ,client->input_tun_ip - iphdr->saddr,inet_ntoa(in),inet_ntoa(sa));
+	}
   ADJUST_CHECKSUM(acc, iphdr->checksum);
 
   if (0 == (iphdr->frag & htons(0x1fff))) {
@@ -261,9 +264,12 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   //acc = iphdr->daddr - client->input_tun_ip;
 	ADD_CHECKSUM_32(acc, iphdr->daddr);
 	SUB_CHECKSUM_32(acc, client->input_tun_ip);
-	if(acc != iphdr->daddr - client->input_tun_ip)
-		errf("acc not equal 0x%08x:0x%08x",acc ,iphdr->daddr - client->input_tun_ip);
-
+	if(acc != iphdr->daddr - client->input_tun_ip){
+		struct in_addr in,da;
+		in.s_addr = client->input_tun_ip;
+		da.s_addr = iphdr->daddr;
+		errf("%s acc not equal 0x%08x:0x%08x, iphdr->daddr:%s input_tun_ip:%s", __func__, acc ,iphdr->daddr - client->input_tun_ip, inet_ntoa(da) ,inet_ntoa(in));
+	}
   // overwrite IP
   iphdr->daddr = client->input_tun_ip;
 
