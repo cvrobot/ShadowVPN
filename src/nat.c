@@ -142,6 +142,34 @@ typedef struct {
         acc -= (u32) >> 16;    \
 }
 
+#define FIX_CHECKSUM(iphdr, fcc) { \
+  short sum = 0; \
+  int32_t verify = 0; \
+  verify = (iphdr->ver<<8)+ \
+  iphdr->tos+ \
+  htons(iphdr->total_len)+ \
+  htons(iphdr->id)+ \
+  htons(iphdr->frag)+ \
+  (iphdr->ttl<<8)+ \
+  iphdr->proto+ \
+  htons(iphdr->checksum)+ \
+  htons((iphdr->saddr>>16) & 0xffff)+ \
+  htons(iphdr->saddr & 0xffff)+ \
+  htons((iphdr->daddr>>16) & 0xffff)+ \
+  htons(iphdr->daddr & 0xffff); \
+  verify = (verify>>16) + (verify&0xffff); \
+  sum = ntohs(verify); \
+  logf("cksum verify:0x%x, checksum:%x", verify, sum); \
+  if(sum == -1){ \
+    fcc = 0; \
+  } else { \
+    fcc = sum<-1 ? -sum-1 : -sum; \
+    if(fcc == 1 || fcc == -1){ \
+      iphdr->checksum += fcc; \
+    } \
+  } \
+}
+
 int nat_check_token(nat_ctx_t *ctx, unsigned char *token,  uint32_t *client_ip)
 {
   client_info_t *client = NULL;
@@ -184,7 +212,7 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   client->source_addr.addrlen =  addrlen;
   memcpy(&client->source_addr.addr, addr, addrlen);
 
-  int32_t acc = 0;
+  int32_t acc = 0, acc1 = 0;
   // save tun input ip to client
   client->input_tun_ip = iphdr->saddr;
 
@@ -192,16 +220,28 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   iphdr->saddr = client->output_tun_ip;
 
   // add old, sub new
-  //acc = client->input_tun_ip - iphdr->saddr;
-	ADD_CHECKSUM_32(acc, client->input_tun_ip);
-	SUB_CHECKSUM_32(acc, iphdr->saddr);
-	if(acc != client->input_tun_ip - iphdr->saddr){
+  acc = client->input_tun_ip - iphdr->saddr;
+	ADD_CHECKSUM_32(acc1, client->input_tun_ip);
+	SUB_CHECKSUM_32(acc1, iphdr->saddr);
+	if(acc != acc1){
 		struct in_addr in,sa;
 		in.s_addr = client->input_tun_ip;
 		sa.s_addr = iphdr->saddr;
-		errf("%s acc not equal 0x%08x:0x%08x, input_tun_ip:%s iphdr->saddr:%s", __func__, acc ,client->input_tun_ip - iphdr->saddr,inet_ntoa(in),inet_ntoa(sa));
+		errf("%s acc not equal 0x%08x:0x%08x, input_tun_ip:%s iphdr->saddr:%s ori_chksum:0x%04x", __func__, acc1 , acc,inet_ntoa(in),inet_ntoa(sa), iphdr->checksum);
+
+		uint16_t chksum = iphdr->checksum;
+		uint16_t chksum1 = iphdr->checksum;
+
+		ADJUST_CHECKSUM(acc, chksum);
+		ADJUST_CHECKSUM(acc1, chksum1);
+		errf("chksum:0x%04x,chksum1:0x%04x", chksum ,chksum1);
 	}
+
+	short fcc = 0;
   ADJUST_CHECKSUM(acc, iphdr->checksum);
+	FIX_CHECKSUM(iphdr, fcc);
+	if(fcc != 0)
+		errf("%s fcc:0x%04x iphdr->checksum:0x%04x", __func__, fcc , iphdr->checksum);
 
   if (0 == (iphdr->frag & htons(0x1fff))) {
     // only adjust tcp & udp when frag offset == 0
@@ -213,6 +253,7 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
       }
       tcp_hdr_t *tcphdr = ip_payload;
       ADJUST_CHECKSUM(acc, tcphdr->checksum);
+			tcphdr->checksum += fcc;
     } else if (iphdr->proto == IPPROTO_UDP) {
       if (buflen < iphdr_len + 8) {
         errf("nat: udp packet too short");
@@ -220,6 +261,7 @@ int nat_fix_upstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
       }
       udp_hdr_t *udphdr = ip_payload;
       ADJUST_CHECKSUM(acc, udphdr->checksum);
+			udphdr->checksum += fcc;
     }
   }
   return 0;
@@ -258,22 +300,33 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
   // copy usertoken back
   memcpy(buf, client->user_token, SHADOWVPN_USERTOKEN_LEN);
 
-  int32_t acc = 0;
+  int32_t acc = 0, acc1 = 0;
 
   // add old, sub new
-  //acc = iphdr->daddr - client->input_tun_ip;
-	ADD_CHECKSUM_32(acc, iphdr->daddr);
-	SUB_CHECKSUM_32(acc, client->input_tun_ip);
-	if(acc != iphdr->daddr - client->input_tun_ip){
+  acc = iphdr->daddr - client->input_tun_ip;
+	ADD_CHECKSUM_32(acc1, iphdr->daddr);
+	SUB_CHECKSUM_32(acc1, client->input_tun_ip);
+	if(acc != acc1){
 		struct in_addr in,da;
 		in.s_addr = client->input_tun_ip;
 		da.s_addr = iphdr->daddr;
-		errf("%s acc not equal 0x%08x:0x%08x, iphdr->daddr:%s input_tun_ip:%s", __func__, acc ,iphdr->daddr - client->input_tun_ip, inet_ntoa(da) ,inet_ntoa(in));
+		errf("%s acc not equal 0x%08x:0x%08x, iphdr->daddr:%s input_tun_ip:%s, ori_chksum:0x%04x ", __func__, acc1 , acc, inet_ntoa(da) ,inet_ntoa(in), iphdr->checksum);
+
+		uint16_t chksum = iphdr->checksum;
+		uint16_t chksum1 = iphdr->checksum;
+
+		ADJUST_CHECKSUM(acc, chksum);
+		ADJUST_CHECKSUM(acc1, chksum1);
+		errf("chksum:0x%04x,chksum1:0x%04x", chksum ,chksum1);
 	}
   // overwrite IP
   iphdr->daddr = client->input_tun_ip;
 
+	short fcc = 0;
   ADJUST_CHECKSUM(acc, iphdr->checksum);
+	FIX_CHECKSUM(iphdr, fcc);
+	if(fcc != 0)
+		errf("%s fcc:0x%04x iphdr->checksum:0x%04x", __func__, fcc , iphdr->checksum);
 
   if (0 == (iphdr->frag & htons(0x1fff))) {
     // only adjust tcp & udp when frag offset == 0
@@ -285,6 +338,7 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
       }
       tcp_hdr_t *tcphdr = ip_payload;
       ADJUST_CHECKSUM(acc, tcphdr->checksum);
+			tcphdr->checksum += fcc;
     } else if (iphdr->proto == IPPROTO_UDP) {
       if (buflen < iphdr_len + 8) {
         errf("nat: udp packet too short");
@@ -292,6 +346,7 @@ int nat_fix_downstream(nat_ctx_t *ctx, unsigned char *buf, size_t buflen,
       }
       udp_hdr_t *udphdr = ip_payload;
       ADJUST_CHECKSUM(acc, udphdr->checksum);
+			udphdr->checksum += fcc;
     }
   }
   return 0;
